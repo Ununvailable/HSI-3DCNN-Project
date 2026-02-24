@@ -11,7 +11,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 dataset_dir = r"Spectrum-Simplified"
-base_dir = r"E:/Liam's Projects/HSI-3DCNN-Project/hsi_datasets/v303/" + dataset_dir
+base_dir = r"E:/Liam/HSI-3DCNN-Project/hsi_datasets/v303/" + dataset_dir
 list_file = os.listdir(base_dir)
 list_file.sort()
 
@@ -29,6 +29,6 @@ img_3d = np.transpose(img_3d, (0,2,1))
 # MAT檔案中會儲存一個變數名稱為 "DataCube"，其對應的值是 img_3d。
 # 當載入這個 .mat 檔案後，會看到一個變數叫 DataCube，資料就是原本的 img_3d。
 from scipy.io import savemat
-savemat(r"E:/Liam's Projects/HSI-3DCNN-Project/hsi_datasets/v303/" + dataset_dir + ".mat", {
+savemat(r"E:/Liam/HSI-3DCNN-Project/hsi_datasets/v303/" + dataset_dir + ".mat", {
     'DataCube': img_3d
 })

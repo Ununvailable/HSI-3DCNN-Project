@@ -7,7 +7,7 @@ from sklearn.model_selection import train_test_split
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 
 # -------------------------
 # 1) Utils: find cube key
@@ -239,11 +239,28 @@ def main():
     )
 
     # ---- Train ----
+    callbacks_list = [
+        EarlyStopping(
+            monitor='val_loss',
+            patience=20,        # ← INCREASE (was 5)
+            restore_best_weights=True,
+            verbose=1
+        ),
+        ReduceLROnPlateau(
+            monitor='val_loss',
+            factor=0.5,
+            patience=15,        # ← INCREASE (was 10)
+            min_lr=1e-7,
+            verbose=1
+        )
+    ]
+
     history = model.fit(
         X_train, y_train,
         epochs=args.epochs,
         batch_size=args.batch_size,
         validation_data=(X_val, y_val),
+        callbacks=callbacks_list,
         verbose=1
     )
 

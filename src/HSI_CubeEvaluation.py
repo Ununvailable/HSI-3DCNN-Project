@@ -6,10 +6,11 @@ import numpy as np
 # import napari
 
 # Load the .mat file
-file_name = "Spectrum-Simplified.mat"
-file_path = loadmat(r"E:/Liam/HSI-3DCNN-Project/hsi_datasets/v303/" + file_name)
+file_name = "Spectrum-1.mat"
+file_path = loadmat(r"hsi_datasets/v303/" + file_name)
 cube = file_path['DataCube']
-save_path = r"E:/Liam/HSI-3DCNN-Project/evaluation_results/"
+save_path = r"evaluation_results/"
+print(f"Loaded {file_name} successfully.")
 print(f"Shape: {cube.shape}")
 print(f"Dtype: {cube.dtype}")
 print(f"Range: [{cube.min()}, {cube.max()}]")
@@ -19,9 +20,9 @@ print(f"Range: [{cube.min()}, {cube.max()}]")
 # plt.title("Spectral signature")
 # plt.show()
 
-plt.plot(cube[45, 100, :])
-plt.savefig(save_path + 'spectral_signature.png')
-plt.close()
+# plt.plot(cube[13, 1632, 1232])
+# plt.savefig(save_path + 'spectral_signature.png')
+# plt.close()
 
 # cube = data['DataCube']
 cube = np.transpose(cube, (1,2,0))  # Fix in memory
@@ -34,5 +35,5 @@ plt.imshow(cube[:, :, 10], cmap='gray')
 # plt.show()
 
 plt.imshow(cube[:, :, 10], cmap='gray')
-plt.savefig(save_path + 'band_10.png')
+# plt.savefig(save_path + 'band_10.png')
 plt.close()

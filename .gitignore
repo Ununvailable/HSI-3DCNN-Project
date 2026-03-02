@@ -1,4 +1,5 @@
 hsi_datasets/
 evaluation_results/
 training_results/
+models/
 inference_results/

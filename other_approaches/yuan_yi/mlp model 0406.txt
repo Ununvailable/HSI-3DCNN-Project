@@ -1,0 +1,7 @@
+Dual-input MLP
+Inputs:
+1232 spectral features
+B+3 (mean, max, std)
+Method: concatenate → classify
+Key: B+3 must be consistent
+Note: old code exists but not used

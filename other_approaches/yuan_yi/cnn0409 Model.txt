@@ -1,0 +1,15 @@
+
+My CNN is a single-input Conv1D model
+It uses 1232 spectral bands only
+B+3 features are NOT used
+
+👉 Reason:
+
+CNN can learn spectral features directly
+Using B+3 would require a dual-input model (more complex)
+Current model already works well
+
+👉 Note:
+
+Some old B+3-related code/comments still exist
+They are not used。

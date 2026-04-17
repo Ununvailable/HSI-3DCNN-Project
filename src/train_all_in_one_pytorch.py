@@ -260,10 +260,10 @@ def main():
     np.random.seed(args.seed)
 
     files = {
-        "Red": "Red.mat",
-        "Green": "Green.mat",
-        "Blue": "Blue.mat",
-        "Paper": "Paper.mat"
+        "Red":   "hsi_datasets/v303/Red.mat",
+        "Green": "hsi_datasets/v303/Green.mat",
+        "Blue":  "hsi_datasets/v303/Blue.mat",
+        "Paper": "hsi_datasets/v303/Paper.mat",
     }
     label_map = {"Red": 0, "Green": 1, "Blue": 2, "Paper": 3}
     num_classes = 4

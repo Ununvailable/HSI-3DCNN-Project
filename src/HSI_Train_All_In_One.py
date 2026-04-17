@@ -11,6 +11,7 @@ Classes:
     ModelTrainer     — Compilation, training, evaluation, and model saving
 """
 
+import datetime
 import os
 import argparse
 import numpy as np
@@ -59,6 +60,15 @@ class TrainingConfig:
     }
     DEFAULT_LABEL_MAP = {"Red": 0, "Green": 1, "Blue": 2, "Paper": 3}
 
+    # DEFAULT_FILES = {
+    #     "IndianPinesCorrected": "hsi_datasets/hsi_researches/indian_pines_corrected.mat",
+    #     "IndianPinesGT": "hsi_datasets/hsi_researches/indian_pines_gt.mat",
+    # }
+    # DEFAULT_LABEL_MAP = {
+    #     "IndianPinesCorrected": 0,
+    #     "IndianPinesGT": 1,
+    # }
+
     def __init__(self, args: argparse.Namespace):
         self.model        = args.model
         self.patch_size   = args.patch_size
@@ -76,6 +86,26 @@ class TrainingConfig:
         self.label_map  = self.DEFAULT_LABEL_MAP
         self.num_classes = len(self.label_map)
 
+        # For timestamped run directories
+        from datetime import datetime
+        self._timestamp = datetime.now().strftime("%Y%m%d-%H%M")
+
+    @property
+    def run_name(self) -> str:
+        """Option B directory name: hsi_{arch}_p{patch}-s{stride}-e{epochs}-b{batch}_{normalize}"""
+        norm = self.normalize or "none"
+        return f"hsi_{self.model}_p{self.patch_size}-s{self.stride}-e{self.epochs}-b{self.batch_size}_{norm}"
+
+    @property
+    def run_dir(self) -> str:
+        """Full path: output_dir / run_name / timestamp"""
+        return os.path.join(self.output_dir, self.run_name, self._timestamp)
+
+    @property
+    def model_filename(self) -> str:
+        """hsi_{arch}_p{patch}-s{stride}-e{epochs}-b{batch}_{normalize}.keras"""
+        return f"{self.run_name}.keras"
+    
     def __repr__(self) -> str:
         lines = [f"TrainingConfig("]
         for k, v in self.__dict__.items():
@@ -184,15 +214,19 @@ class HSIDataset:
                 f"{mat_path} — '{key}' is not 3D, shape={cube.shape}"
             )
 
-        raw_shape = cube.shape
-        band_axis = int(np.argmin(raw_shape))
+        # raw_shape = cube.shape
+        # band_axis = int(np.argmin(raw_shape))
 
-        if band_axis == 0:
-            cube_bhw = cube
-        elif band_axis == 1:
-            cube_bhw = np.transpose(cube, (1, 0, 2))
-        else:
-            cube_bhw = np.transpose(cube, (2, 0, 1))
+        # if band_axis == 0:
+        #     cube_bhw = cube
+        # elif band_axis == 1:
+        #     cube_bhw = np.transpose(cube, (1, 0, 2))
+        # else:
+        #     cube_bhw = np.transpose(cube, (2, 0, 1))
+
+        raw_shape = cube.shape          # (Y, X, B) as saved by HSI_Conversion
+        cube_bhw  = np.transpose(cube, (2, 0, 1))  # → (B, Y, X)
+        band_axis = 2                   # documented, no longer guessed
 
         return cube_bhw.astype(np.float32), key, raw_shape, band_axis
 
@@ -220,19 +254,27 @@ class HSIDataset:
 
     @staticmethod
     def _extract_patches(cube_bhw: np.ndarray, patch_size: int, stride: int) -> np.ndarray:
-        """Extract (N, B, P, P) patches from a (B, H, W) datacube."""
         B, H, W = cube_bhw.shape
         r = patch_size // 2
-        patches = []
 
+        # Guard: warn if spatial coverage is very limited
+        valid_y = len(range(r, H - r, stride))
+        valid_x = len(range(r, W - r, stride))
+        if valid_y < 5:
+            print(f"  ⚠  Very few valid Y positions ({valid_y}) — "
+                f"H={H} is small relative to patch_size={patch_size}. "
+                f"Consider reducing patch_size.")
+
+        patches = []
         for y in range(r, H - r, stride):
             for x in range(r, W - r, stride):
                 patches.append(cube_bhw[:, y - r:y + r + 1, x - r:x + r + 1])
 
         if not patches:
             raise ValueError(
-                f"No patches extracted. Cube={cube_bhw.shape}, "
-                f"patch_size={patch_size}, stride={stride}."
+                f"No patches extracted. Cube=(B={B}, H={H}, W={W}), "
+                f"patch_size={patch_size}, stride={stride}. "
+                f"Reduce patch_size to at most {H - 1}."
             )
 
         return np.array(patches, dtype=np.float32)
@@ -282,27 +324,51 @@ class HSIModelFactory:
             )
         return builders[architecture](input_shape, num_classes)
 
+    # @staticmethod
+    # def _build_simple(input_shape: tuple, num_classes: int) -> keras.Model:
+    #     """Practical 3D CNN baseline."""
+    #     model = keras.Sequential([
+    #         keras.Input(shape=input_shape),
+
+    #         layers.Conv3D(16, (3, 3, 3), activation='relu', padding='same'),
+    #         layers.BatchNormalization(),
+    #         layers.MaxPooling3D((1, 2, 2)),
+
+    #         layers.Conv3D(32, (3, 3, 3), activation='relu', padding='same'),
+    #         layers.BatchNormalization(),
+    #         layers.MaxPooling3D((1, 2, 2)),
+
+    #         layers.Conv3D(64, (3, 3, 3), activation='relu', padding='same'),
+    #         layers.BatchNormalization(),
+    #         layers.MaxPooling3D((1, 2, 2)),
+
+    #         layers.Flatten(),
+    #         layers.Dense(128, activation='relu'),
+    #         layers.Dropout(0.6),
+    #         layers.Dense(num_classes, activation='softmax'),
+    #     ])
+    #     return model
+
     @staticmethod
     def _build_simple(input_shape: tuple, num_classes: int) -> keras.Model:
-        """Practical 3D CNN baseline."""
         model = keras.Sequential([
             keras.Input(shape=input_shape),
 
-            layers.Conv3D(16, (3, 3, 3), activation='relu', padding='same'),
+            layers.Conv3D(16, (7, 1, 1), activation='relu', padding='same'),  # spectral kernel
             layers.BatchNormalization(),
-            layers.MaxPooling3D((1, 2, 2)),
+            layers.MaxPooling3D((4, 1, 1)),   # pool spectral only: 1232→308
 
-            layers.Conv3D(32, (3, 3, 3), activation='relu', padding='same'),
+            layers.Conv3D(32, (5, 1, 1), activation='relu', padding='same'),
             layers.BatchNormalization(),
-            layers.MaxPooling3D((1, 2, 2)),
+            layers.MaxPooling3D((4, 1, 1)),   # 308→77
 
-            layers.Conv3D(64, (3, 3, 3), activation='relu', padding='same'),
+            layers.Conv3D(64, (3, 3, 3), activation='relu', padding='same'),  # joint spectral-spatial
             layers.BatchNormalization(),
-            layers.MaxPooling3D((1, 2, 2)),
+            layers.MaxPooling3D((4, 1, 1)),   # 77→19
 
             layers.Flatten(),
             layers.Dense(128, activation='relu'),
-            layers.Dropout(0.6),
+            layers.Dropout(0.5),
             layers.Dense(num_classes, activation='softmax'),
         ])
         return model
@@ -357,6 +423,9 @@ class ModelTrainer:
 
     def train(self) -> None:
         """Split data, compile, and fit the model."""
+        from datetime import datetime
+        self._train_start = datetime.now()
+
         if self.model is None:
             raise RuntimeError("Call build_model() before train().")
 
@@ -413,21 +482,50 @@ class ModelTrainer:
         return {"loss": loss, "accuracy": acc}
 
     def save(self) -> str:
-        """
-        Save the trained model to config.output_dir / config.save.
-
-        Returns
-        -------
-        Absolute path to the saved model file.
-        """
+        """Save model and metadata.txt into the structured run directory."""
         if self.model is None:
             raise RuntimeError("No model to save.")
 
-        os.makedirs(self.config.output_dir, exist_ok=True)
-        save_path = os.path.join(self.config.output_dir, self.config.save)
-        self.model.save(save_path)
-        print(f"Model saved → {save_path}")
-        return save_path
+        import sys, time, tensorflow as tf
+        from datetime import datetime
+
+        run_dir = self.config.run_dir
+        os.makedirs(run_dir, exist_ok=True)
+
+        # ── model ──────────────────────────────────────────────
+        model_path = os.path.join(run_dir, self.config.model_filename)
+        self.model.save(model_path)
+        print(f"Model saved → {model_path}")
+
+        # ── metadata.txt ───────────────────────────────────────
+        metrics  = self.evaluate()   # returns {"loss": ..., "accuracy": ...}
+        duration = datetime.now() - self._train_start  # timedelta object
+        duration = duration.seconds
+
+        meta_path = os.path.join(run_dir, "metadata.txt")
+        with open(meta_path, "w") as f:
+            f.write("=" * 55 + "\n")
+            f.write("HSI TRAINING RUN METADATA\n")
+            f.write("=" * 55 + "\n")
+            f.write(f"Timestamp      : {self.config._timestamp}\n")
+            f.write(f"TensorFlow     : {tf.__version__}\n")
+            f.write(f"Python         : {sys.version.split()[0]}\n")
+            f.write("\n--- Hyperparameters ---\n")
+            for attr in ("model", "patch_size", "stride", "epochs",
+                        "batch_size", "test_size", "seed", "normalize",
+                        "datacube_key"):
+                f.write(f"  {attr:<15s}: {getattr(self.config, attr)}\n")
+            f.write("\n--- Dataset ---\n")
+            for cls, path in self.config.files.items():
+                f.write(f"  {cls:<10s}: {path}\n")
+            f.write("\n--- Results ---\n")
+            f.write(f"  val_accuracy   : {metrics['accuracy']:.4f}\n")
+            f.write(f"  val_loss       : {metrics['loss']:.4f}\n")
+            f.write(f"  training_time  : {duration}s\n")
+            f.write("=" * 55 + "\n")
+
+        print(f"Metadata saved → {meta_path}")
+        return model_path
 
 
 # ─────────────────────────────────────────────
@@ -438,18 +536,18 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="HSI 3D-CNN Training Pipeline")
     parser.add_argument("--model",        type=str,   default="simple",
                         choices=["simple", "li2017"])
-    parser.add_argument("--patch_size",   type=int,   default=9)
-    parser.add_argument("--stride",       type=int,   default=9)
-    parser.add_argument("--epochs",       type=int,   default=20)
-    parser.add_argument("--batch_size",   type=int,   default=16)
+    parser.add_argument("--patch_size",   type=int,   default=3)
+    parser.add_argument("--stride",       type=int,   default=1)
+    parser.add_argument("--epochs",       type=int,   default=50)
+    parser.add_argument("--batch_size",   type=int,   default=8)
     parser.add_argument("--test_size",    type=float, default=0.2)
     parser.add_argument("--seed",         type=int,   default=42)
     parser.add_argument("--datacube_key", type=str,   default=None,
                         help="Explicit .mat variable name; auto-detected if omitted.")
     parser.add_argument("--normalize",    type=str,   default="minmax",
                         choices=["minmax", "max", "none"])
-    parser.add_argument("--save",         type=str,   default="hsi_model.keras")
-    parser.add_argument("--output_dir",   type=str,   default="training_results")
+    parser.add_argument("--save",         type=str,   default="hsi_model_default.keras")
+    parser.add_argument("--output_dir",   type=str,   default="models")
     return parser
 
 

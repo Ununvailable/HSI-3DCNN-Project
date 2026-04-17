@@ -82,13 +82,16 @@ class DatasetAnalyzer:
                 f"'{self.key}' in {self.mat_path} is not 3D — shape={cube.shape}"
             )
 
-        band_axis = int(np.argmin(cube.shape))
-        if band_axis == 0:
-            self.cube_bhw = cube.astype(np.float32)
-        elif band_axis == 1:
-            self.cube_bhw = np.transpose(cube, (1, 0, 2)).astype(np.float32)
-        else:
-            self.cube_bhw = np.transpose(cube, (2, 0, 1)).astype(np.float32)
+        # band_axis = int(np.argmin(cube.shape))
+        # if band_axis == 0:
+        #     self.cube_bhw = cube.astype(np.float32)
+        # elif band_axis == 1:
+        #     self.cube_bhw = np.transpose(cube, (1, 0, 2)).astype(np.float32)
+        # else:
+        #     self.cube_bhw = np.transpose(cube, (2, 0, 1)).astype(np.float32)
+
+        # Saved convention is (Y, X, B) → reorder to (B, Y, X)
+        self.cube_bhw = np.transpose(cube, (2, 0, 1)).astype(np.float32)
 
         self.B, self.H, self.W = self.cube_bhw.shape
         return self
@@ -185,46 +188,110 @@ class DatasetAnalyzer:
         max_cols: int = 5,
     ) -> None:
         """
-        Render a grid of all spectral bands.
+        Render a grid of all spectral bands, each paired with its intensity histogram.
+        Each band occupies two adjacent columns: [image | histogram].
 
         Parameters
         ----------
         cmap     : Matplotlib colormap
         save_dir : Directory for per-band PNGs and the combined grid
-        max_cols : Grid column count
+        max_cols : Number of band pairs per row (actual subplot columns = max_cols * 2)
         """
         self._require_loaded()
 
-        n_cols = min(max_cols, self.B)
-        n_rows = int(np.ceil(self.B / n_cols))
+        n_pairs_per_row = min(max_cols, self.B)   # band pairs per row
+        n_rows          = int(np.ceil(self.B / n_pairs_per_row))
+        n_subplot_cols  = n_pairs_per_row * 2     # image col + histogram col per pair
 
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(3 * n_cols, 3 * n_rows))
-        axes = np.array(axes).reshape(n_rows, n_cols)
+        fig, axes = plt.subplots(
+            n_rows, n_subplot_cols,
+            figsize=(4 * n_subplot_cols, 3.5 * n_rows),
+        )
+        # Normalise axes to always be 2-D (n_rows, n_subplot_cols)
+        axes = np.array(axes).reshape(n_rows, n_subplot_cols)
 
         for i in range(self.B):
-            row, col = divmod(i, n_cols)
-            img = self.cube_bhw[i]
-            axes[row, col].imshow(img, cmap=cmap, interpolation="nearest")
-            axes[row, col].set_title(f"Band {i}", fontsize=9)
-            axes[row, col].axis("off")
+            row         = i // n_pairs_per_row
+            pair_offset = (i %  n_pairs_per_row) * 2   # left column of this pair
+            img         = self.cube_bhw[i]
 
+            # ── image ───────────────────────────────────────────────────────
+            ax_img = axes[row, pair_offset]
+            ax_img.imshow(img, cmap=cmap, interpolation="nearest")
+            ax_img.set_title(f"Band {i}", fontsize=9, fontweight="bold")
+            ax_img.axis("off")
+
+            # ── histogram ───────────────────────────────────────────────────
+            ax_hist = axes[row, pair_offset + 1]
+            ax_hist.hist(
+                img.flatten(), bins=60,
+                color="steelblue", alpha=0.75, edgecolor="none",
+            )
+            ax_hist.set_xlabel("Intensity", fontsize=7)
+            ax_hist.set_ylabel("Freq",      fontsize=7)
+            ax_hist.tick_params(labelsize=6)
+            ax_hist.grid(True, alpha=0.25, linewidth=0.5)
+
+            stats = (
+                f"μ={img.mean():.1f}\n"
+                f"σ={img.std():.1f}\n"
+                f"[{img.min():.0f}, {img.max():.0f}]"
+            )
+            ax_hist.text(
+                0.97, 0.97, stats,
+                transform=ax_hist.transAxes,
+                verticalalignment="top", horizontalalignment="right",
+                bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+                fontsize=6,
+            )
+
+            # ── optional individual file save (image + histogram side-by-side) ──
             if save_dir:
                 os.makedirs(save_dir, exist_ok=True)
                 band_path = os.path.join(save_dir, f"band_{i:03d}.png")
-                fig_s, ax_s = plt.subplots(figsize=(8, 6))
-                ax_s.imshow(img, cmap=cmap, interpolation="nearest")
-                ax_s.set_title(f"{self.name} — Band {i}")
-                plt.colorbar(plt.cm.ScalarMappable(cmap=cmap), ax=ax_s, label="Intensity")
+                fig_s, (ax_s_img, ax_s_hist) = plt.subplots(1, 2, figsize=(12, 5))
+
+                ax_s_img.imshow(img, cmap=cmap, interpolation="nearest")
+                ax_s_img.set_title(f"{self.name} — Band {i}", fontsize=12, fontweight="bold")
+                ax_s_img.set_xlabel("X (pixels)")
+                ax_s_img.set_ylabel("Y (pixels)")
+                norm = plt.Normalize(vmin=img.min(), vmax=img.max())
+                plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap),
+                             ax=ax_s_img, label="Intensity")
+
+                ax_s_hist.hist(img.flatten(), bins=100,
+                               color="steelblue", alpha=0.75, edgecolor="black")
+                ax_s_hist.set_xlabel("Pixel Intensity", fontsize=11)
+                ax_s_hist.set_ylabel("Frequency",       fontsize=11)
+                ax_s_hist.set_title("Intensity Distribution", fontsize=12, fontweight="bold")
+                ax_s_hist.grid(True, alpha=0.3)
+                full_stats = (
+                    f"Min:  {img.min():.2f}\nMax:  {img.max():.2f}\n"
+                    f"Mean: {img.mean():.2f}\nStd:  {img.std():.2f}"
+                )
+                ax_s_hist.text(
+                    0.98, 0.98, full_stats,
+                    transform=ax_s_hist.transAxes,
+                    verticalalignment="top", horizontalalignment="right",
+                    bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+                    fontsize=10,
+                )
+
                 plt.tight_layout()
                 plt.savefig(band_path, dpi=150, bbox_inches="tight")
                 plt.close(fig_s)
 
-        # Hide unused axes
-        for i in range(self.B, n_rows * n_cols):
-            row, col = divmod(i, n_cols)
-            axes[row, col].axis("off")
+        # Hide unused subplot pairs
+        for i in range(self.B, n_rows * n_pairs_per_row):
+            row         = i // n_pairs_per_row
+            pair_offset = (i %  n_pairs_per_row) * 2
+            axes[row, pair_offset    ].axis("off")
+            axes[row, pair_offset + 1].axis("off")
 
-        fig.suptitle(f"{self.name} — All {self.B} Bands", fontsize=14, fontweight="bold")
+        fig.suptitle(
+            f"{self.name} — All {self.B} Bands  (image | histogram)",
+            fontsize=14, fontweight="bold",
+        )
         plt.tight_layout()
 
         grid_path = os.path.join(save_dir, "all_bands_grid.png") if save_dir else None
@@ -375,7 +442,7 @@ def main():
     analyzer = DatasetAnalyzer(args.input, datacube_key=args.datacube_key)
     analyzer.load()
 
-    print(f"  Shape: (B={analyzer.B}, H={analyzer.H}, W={analyzer.W})")
+    print(f"  Shape: ({analyzer.B}, {analyzer.H}, {analyzer.W})")
 
     # Always print report if --report or as default info
     if args.report or not any([args.all_bands, args.rgb, args.signature]):

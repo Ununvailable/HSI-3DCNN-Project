@@ -170,13 +170,16 @@ class InferenceEngine:
         if cube.ndim != 3:
             raise ValueError(f"'{key}' in {mat_path} is not 3D — shape={cube.shape}")
 
-        band_axis = int(np.argmin(cube.shape))
-        if band_axis == 0:
-            return cube.astype(np.float32)
-        elif band_axis == 1:
-            return np.transpose(cube, (1, 0, 2)).astype(np.float32)
-        else:
-            return np.transpose(cube, (2, 0, 1)).astype(np.float32)
+        # band_axis = int(np.argmin(cube.shape))
+        # if band_axis == 0:
+        #     return cube.astype(np.float32)
+        # elif band_axis == 1:
+        #     return np.transpose(cube, (1, 0, 2)).astype(np.float32)
+        # else:
+        #     return np.transpose(cube, (2, 0, 1)).astype(np.float32)
+
+        # Saved convention is (Y, X, B) → reorder to (B, Y, X)
+        return np.transpose(cube, (2, 0, 1)).astype(np.float32)
 
     def _extract_patches(self, cube_bhw: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         B, H, W = cube_bhw.shape
@@ -412,20 +415,27 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="HSI Inference Testing — classify HSI datacubes with a trained model"
     )
-    parser.add_argument("--model",       type=str, required=True,
-                        help="Path to trained .keras model")
+    parser.add_argument("--model", type=str, required=False, default=None,
+                        help=(
+                            "Full path to a .keras file, e.g.:\n"
+                            "  training_results/hsi_simple_p9-s4-e20-b16_minmax"
+                            "/20260302-1430/hsi_simple_p9-s4-e20-b16_minmax.keras"
+                        ))
+    parser.add_argument("--list_models", type=str, default=None,
+                        metavar="TRAINING_RESULTS_DIR",
+                        help="Scan a training_results dir and list all available .keras files, then exit.")
     parser.add_argument("--input_dir",   type=str, default="hsi_datasets/v303",
                         help="Directory of .mat files (used when --input_files not given)")
     parser.add_argument("--input_files", type=str, nargs="+", default=None,
                         help="Explicit .mat file paths (overrides --input_dir)")
-    parser.add_argument("--output_dir",  type=str, default="inference_result",
+    parser.add_argument("--output_dir",  type=str, default="inference_results",
                         help="Base output directory")
-    parser.add_argument("--patch_size",  type=int, default=9)
-    parser.add_argument("--stride",      type=int, default=4,
+    parser.add_argument("--patch_size",  type=int, default=3)
+    parser.add_argument("--stride",      type=int, default=1,
                         help="Patch stride (smaller = denser predictions)")
     parser.add_argument("--normalize",   type=str, default="minmax",
                         choices=["minmax", "max", "none"])
-    parser.add_argument("--batch_size",  type=int, default=64)
+    parser.add_argument("--batch_size",  type=int, default=8)
     parser.add_argument("--class_names", type=str, nargs="+",
                         default=["Red", "Green", "Blue", "Paper"])
     parser.add_argument("--skip_indian_pines", action="store_true",
@@ -434,6 +444,29 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main():
+    # if args.list_models:
+    #     matches = []
+    #     for root, _, files in os.walk(args.list_models):
+    #         for f in files:
+    #             if f.endswith(".keras"):
+    #                 matches.append(os.path.join(root, f))
+    #     matches.sort()
+    #     print(f"\nAvailable models in '{args.list_models}':\n")
+    #     for m in matches:
+    #         # Print accompanying metadata summary if present
+    #         meta = os.path.join(os.path.dirname(m), "metadata.txt")
+    #         print(f"  {m}")
+    #         if os.path.exists(meta):
+    #             with open(meta) as mf:
+    #                 for line in mf:
+    #                     if any(k in line for k in ("val_accuracy", "val_loss", "Timestamp")):
+    #                         print(f"    {line.rstrip()}")
+    #         print()
+    #     return
+
+    # if not args.model:
+    #     print("ERROR: --model is required unless --list_models is used.")
+    #     return
     parser = _build_parser()
     args   = parser.parse_args()
 

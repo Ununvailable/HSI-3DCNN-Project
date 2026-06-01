@@ -96,6 +96,7 @@ print(f"上色時間: {end_color - start_color:.2f} 秒")
 
 
 # === 顯示結果影像 ===
+plt.figure(figsize=(6, 10))
 plt.imshow(rgb_img)
 plt.title("RGB_SVM")
 plt.axis("off")

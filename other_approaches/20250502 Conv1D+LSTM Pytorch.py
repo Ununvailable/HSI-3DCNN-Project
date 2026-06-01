@@ -49,12 +49,12 @@ X_train = scaler.fit_transform(X_train)
 # === 將資料轉換為 (N, 1, B) — 保持與原始相同的 shape ===
 X_train_3d = X_train.reshape(-1, 1, B).astype(np.float32)
 
-# === 建立 PyTorch Dataset，切分 90/10 訓練/驗證 ===
+# === 建立 PyTorch Dataset，切分 80/20 訓練/驗證 ===
 dataset = TensorDataset(
     torch.from_numpy(X_train_3d),
     torch.from_numpy(y_train)
 )
-val_size   = int(0.1 * len(dataset))
+val_size   = int(0.2 * len(dataset))
 train_size = len(dataset) - val_size
 train_ds, val_ds = random_split(dataset, [train_size, val_size],
                                 generator=torch.Generator().manual_seed(42))
